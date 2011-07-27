@@ -1,0 +1,66 @@
+#!/usr/bin/env python
+"""
+svnotifier.py: Post-commit svn hook, to send notifications of changes to the svn
+repository
+
+links:
+http://wiki.python.org/moin/UdpCommunication
+http://www.doughellmann.com/PyMOTW/socket/multicast.html
+"""
+__version__ = "0.1"
+__author__ = "João Pinto Neto (joaopintoneto@gmail.com)"
+__copyright__ = "(C) 2011. GNU GPL 3."
+
+import sys, os, string, socket, struct
+
+SVNLOOK = '/usr/bin/svnlook'
+
+def main(repos, txn):
+    log_msg = '\nSVNotifier:\n'
+
+    # Changelog
+    log_cmd = '%s log -r "%s" "%s"' % (SVNLOOK, txn, repos)
+    log_msg += os.popen(log_cmd, 'r').readline().rstrip('\n')
+
+    # Author
+    log_cmd = '%s author -r "%s" "%s"' % (SVNLOOK, txn, repos)
+    log_msg += '\nby: '
+    log_msg += os.popen(log_cmd, 'r').readline().rstrip('\n')
+    log_msg += '\n'
+
+    # Modification
+    log_cmd = '%s changed -r "%s" "%s"' % (SVNLOOK, txn, repos)
+    log_msg += 'Modified files:\n'
+    log_msg += os.popen(log_cmd, 'r').read()
+    
+    # Multicast group
+    multicast_group = ('224.3.29.71', 10000)
+
+    # Create the datagram socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    # Set a timeout so the socket does not block indefinitely when trying
+    # to receive data.
+    sock.settimeout(0.2)
+
+    # Set the time-to-live for messages to 1 so they do not go past the
+    # local network segment.
+    ttl = struct.pack('b', 1)
+    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, ttl)
+
+    try:
+        # Send data to the multicast group
+        print >>sys.stderr, 'sending "%s"' % log_msg
+        sent = sock.sendto(log_msg, multicast_group)
+
+    finally:
+        print >>sys.stderr, 'closing socket'
+        sock.close()
+
+    sys.exit(0)
+
+if __name__ == '__main__':
+    if len(sys.argv) < 3:
+        sys.stderr.write("Usage: %s REPOS TXN\n" % (sys.argv[0]))
+    else:
+        main(sys.argv[1], sys.argv[2])
